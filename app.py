@@ -106,6 +106,8 @@ with tab1:
         
         空欄の場合は制限なしとなります。
         """)
+        
+        st.info("💡 **高速化機能**: 時間指定時は必要な部分のみダウンロードするため、長時間動画でも高速処理が可能です。")
     
     # 個別指定ダウンロードボタン
     individual_download = st.button("🎯 個別指定ダウンロード", type="primary")
@@ -183,7 +185,10 @@ if run_dl:
         st.stop()
 
     mode_text = "個別指定" if download_mode == "individual" else "一括"
-    with st.spinner(f"{len(valid_entries)} 本を{mode_text}ダウンロード中…"):
+    time_specified = any(entry['start_time'] is not None or entry['end_time'] is not None for entry in valid_entries)
+    efficiency_note = "（時間指定により高速化）" if time_specified else ""
+    
+    with st.spinner(f"{len(valid_entries)} 本を{mode_text}ダウンロード中{efficiency_note}…"):
         with TemporaryDirectory() as td:
             out_dir = Path(td)
             
@@ -207,26 +212,31 @@ if run_dl:
                         "quiet": True,
                     }
                     
-                    # 時間指定がある場合はffmpegで切り出し
+                    # 時間指定がある場合は効率的なダウンロード範囲指定
                     if start_time is not None or end_time is not None:
-                        postprocessor_args = []
+                        # ダウンロード範囲を指定（必要な部分のみダウンロード）
+                        download_ranges = []
                         
-                        if start_time is not None:
-                            postprocessor_args.extend(["-ss", str(start_time)])
+                        if start_time is not None and end_time is not None:
+                            # 開始時間と終了時間の両方が指定されている場合
+                            download_ranges.append({
+                                "start_time": start_time,
+                                "end_time": end_time
+                            })
+                        elif start_time is not None:
+                            # 開始時間のみが指定されている場合（最後まで）
+                            download_ranges.append({
+                                "start_time": start_time,
+                                "end_time": float('inf')
+                            })
+                        elif end_time is not None:
+                            # 終了時間のみが指定されている場合（最初から）
+                            download_ranges.append({
+                                "start_time": 0,
+                                "end_time": end_time
+                            })
                         
-                        if end_time is not None:
-                            if start_time is not None:
-                                duration = end_time - start_time
-                                postprocessor_args.extend(["-t", str(duration)])
-                            else:
-                                postprocessor_args.extend(["-t", str(end_time)])
-                        
-                        ydl_opts["postprocessors"] = [{
-                            "key": "FFmpegVideoRemuxer",
-                            "preferedformat": "mp4",
-                        }]
-                        
-                        ydl_opts["postprocessor_args"] = postprocessor_args
+                        ydl_opts["download_ranges"] = download_ranges
                         
                         # 時間指定があるファイル名の生成
                         if start_str and end_str:
@@ -240,17 +250,22 @@ if run_dl:
                         
                         ydl_opts["outtmpl"] = str(out_dir / f"%(title)s{time_suffix}.%(ext)s")
                     else:
+                        # 時間指定なしの場合は通常のダウンロード
                         ydl_opts["outtmpl"] = str(out_dir / "%(title)s.%(ext)s")
                     
                     with YoutubeDL(ydl_opts) as ydl:
                         ydl.download([url])
                     
                     # ダウンロードしたファイルを session_state に保存
-                    for fp in out_dir.iterdir():
-                        if fp.is_file() and fp.suffix.lower() in ['.mp4', '.mkv', '.avi', '.mov']:
-                            with open(fp, "rb") as f:
-                                st.session_state["files"].append((fp.name, f.read()))
-                            fp.unlink()  # 一時ファイルを削除
+                    downloaded_files = list(out_dir.glob("*"))
+                    if downloaded_files:
+                        for fp in downloaded_files:
+                            if fp.is_file() and fp.suffix.lower() in ['.mp4', '.mkv', '.avi', '.mov', '.webm']:
+                                with open(fp, "rb") as f:
+                                    st.session_state["files"].append((fp.name, f.read()))
+                                fp.unlink()  # 一時ファイルを削除
+                    else:
+                        st.warning(f"⚠️ {url}: ダウンロードされたファイルが見つかりませんでした")
                 
                 except Exception as e:
                     st.error(f"{url} でエラー: {e}")
