@@ -107,7 +107,7 @@ with tab1:
         空欄の場合は制限なしとなります。
         """)
         
-        st.info("💡 **高速化機能**: 時間指定時は必要な部分のみダウンロードするため、長時間動画でも高速処理が可能です。")
+        st.info("🤖 **bot検出回避時間指定**: User-Agent偵装、リトライ機能、待機時間設定などでYouTubeのbot検出を回避。")
     
     # 個別指定ダウンロードボタン
     individual_download = st.button("🎯 個別指定ダウンロード", type="primary")
@@ -176,17 +176,21 @@ if run_dl:
         st.warning("URL が入力されていません")
         st.stop()
 
-    if shutil.which("ffmpeg") is None:
-        st.error(
-            "ffmpeg が見つかりません。\n"
-            "ローカルの場合はインストールしてください。\n"
-            "Streamlit Cloud では packages.txt に 'ffmpeg' と書いておけば自動導入されます。"
+    # 時間指定のチェックを先に実行
+    time_specified = any(entry['start_time'] is not None or entry['end_time'] is not None for entry in valid_entries)
+    
+    # ffmpegのチェック
+    if time_specified and shutil.which("ffmpeg") is None:
+        st.warning(
+            "⚠️ ffmpeg が見つかりません。時間指定機能が制限される可能性があります。"
         )
-        st.stop()
+    
+    # bot検出回避のための事前情報表示
+    if time_specified:
+        st.info("🤖 YouTubeのbot検出回避機能を有効化してダウンロードを開始します。")
 
     mode_text = "個別指定" if download_mode == "individual" else "一括"
-    time_specified = any(entry['start_time'] is not None or entry['end_time'] is not None for entry in valid_entries)
-    efficiency_note = "（時間指定により高速化）" if time_specified else ""
+    efficiency_note = "（bot検出回避リトライ付き）" if time_specified else ""
     
     with st.spinner(f"{len(valid_entries)} 本を{mode_text}ダウンロード中{efficiency_note}…"):
         with TemporaryDirectory() as td:
@@ -202,7 +206,7 @@ if run_dl:
                 end_str = entry['end_str']
                 
                 try:
-                    # 基本のyt-dlpオプション
+                    # 基本のyt-dlpオプション（bot検出回避設定付き）
                     ydl_opts = {
                         "format": (
                             "bestvideo[ext=mp4][height<=1080]+"
@@ -210,34 +214,66 @@ if run_dl:
                         ),
                         "merge_output_format": "mp4",
                         "quiet": True,
+                        # bot検出回避のための設定
+                        "http_headers": {
+                            "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                            "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                            "Accept-Language": "en-US,en;q=0.5",
+                            "Accept-Encoding": "gzip, deflate",
+                            "DNT": "1",
+                            "Connection": "keep-alive",
+                            "Upgrade-Insecure-Requests": "1",
+                        },
+                        # その他の回避設定
+                        "extractor_retries": 3,
+                        "fragment_retries": 3,
+                        "file_access_retries": 3,
+                        "retry_sleep_functions": {
+                            "http": lambda n: min(4 ** n, 60),
+                            "fragment": lambda n: min(4 ** n, 60),
+                            "file_access": lambda n: min(4 ** n, 60),
+                        },
+                        # YouTube固有の回避設定
+                        "youtube_include_dash_manifest": False,
+                        "extractor_args": {
+                            "youtube": {
+                                "skip": ["hls", "dash"],
+                                "player_skip": ["js"],
+                                "comment_sort": ["top"],
+                                "max_comments": ["0"],
+                            }
+                        },
+                        # ネットワーク設定
+                        "socket_timeout": 30,
+                        "prefer_insecure": False,
                     }
                     
-                    # 時間指定がある場合は効率的なダウンロード範囲指定
+                    # 時間指定がある場合は安定した方法で処理
                     if start_time is not None or end_time is not None:
-                        # ダウンロード範囲を指定（必要な部分のみダウンロード）
-                        download_ranges = []
+                        # 安定したポストプロセッサ方式で時間指定処理
+                        st.info(f"✂️ 時間指定処理中: {start_str or '0'}-{end_str or '終了'}")
                         
-                        if start_time is not None and end_time is not None:
-                            # 開始時間と終了時間の両方が指定されている場合
-                            download_ranges.append({
-                                "start_time": start_time,
-                                "end_time": end_time
-                            })
-                        elif start_time is not None:
-                            # 開始時間のみが指定されている場合（最後まで）
-                            download_ranges.append({
-                                "start_time": start_time,
-                                "end_time": float('inf')
-                            })
-                        elif end_time is not None:
-                            # 終了時間のみが指定されている場合（最初から）
-                            download_ranges.append({
-                                "start_time": 0,
-                                "end_time": end_time
-                            })
+                        postprocessor_args = []
                         
-                        ydl_opts["download_ranges"] = download_ranges
+                        if start_time is not None:
+                            postprocessor_args.extend(["-ss", str(start_time)])
                         
+                        if end_time is not None:
+                            if start_time is not None:
+                                duration = end_time - start_time
+                                postprocessor_args.extend(["-t", str(duration)])
+                            else:
+                                postprocessor_args.extend(["-t", str(end_time)])
+                        
+                        ydl_opts["postprocessors"] = [{
+                            "key": "FFmpegVideoRemuxer",
+                            "preferedformat": "mp4",
+                        }]
+                        
+                        ydl_opts["postprocessor_args"] = postprocessor_args
+                        
+                    # ファイル名の生成
+                    if start_time is not None or end_time is not None:
                         # 時間指定があるファイル名の生成
                         if start_str and end_str:
                             time_suffix = f"_{start_str}-{end_str}"
@@ -253,22 +289,58 @@ if run_dl:
                         # 時間指定なしの場合は通常のダウンロード
                         ydl_opts["outtmpl"] = str(out_dir / "%(title)s.%(ext)s")
                     
-                    with YoutubeDL(ydl_opts) as ydl:
-                        ydl.download([url])
+                    # ダウンロード実行（リトライ機能付き）
+                    download_success = False
+                    for attempt in range(2):  # 最大2回試行
+                        try:
+                            with YoutubeDL(ydl_opts) as ydl:
+                                if attempt == 1:
+                                    # 2回目はさらに回避設定を強化
+                                    ydl_opts["sleep_interval"] = 2
+                                    ydl_opts["max_sleep_interval"] = 5
+                                    st.info(f"🔄 {url}: 再試行中...")
+                                
+                                ydl.download([url])
+                                download_success = True
+                                break
+                        except Exception as download_error:
+                            if attempt == 0 and ("Sign in to confirm" in str(download_error) or "bot" in str(download_error).lower()):
+                                import time
+                                time.sleep(3)  # 3秒待機
+                                continue
+                            else:
+                                raise download_error
+                    
+                    if not download_success:
+                        raise Exception("複数回の試行後もダウンロードに失敗しました")
                     
                     # ダウンロードしたファイルを session_state に保存
-                    downloaded_files = list(out_dir.glob("*"))
-                    if downloaded_files:
-                        for fp in downloaded_files:
-                            if fp.is_file() and fp.suffix.lower() in ['.mp4', '.mkv', '.avi', '.mov', '.webm']:
-                                with open(fp, "rb") as f:
-                                    st.session_state["files"].append((fp.name, f.read()))
-                                fp.unlink()  # 一時ファイルを削除
-                    else:
-                        st.warning(f"⚠️ {url}: ダウンロードされたファイルが見つかりませんでした")
+                    try:
+                        files_found = False
+                        for file_path in out_dir.iterdir():
+                            if file_path.is_file() and file_path.suffix.lower() in ['.mp4', '.mkv', '.avi', '.mov', '.webm']:
+                                with open(file_path, "rb") as f:
+                                    st.session_state["files"].append((file_path.name, f.read()))
+                                file_path.unlink()  # 一時ファイルを削除
+                                files_found = True
+                        
+                        if not files_found:
+                            st.warning(f"⚠️ {url}: ダウンロードされたファイルが見つかりませんでした")
+                    except Exception as file_error:
+                        st.error(f"ファイル処理エラー: {file_error}")
                 
                 except Exception as e:
-                    st.error(f"{url} でエラー: {e}")
+                    error_msg = str(e)
+                    if "Sign in to confirm" in error_msg or "bot" in error_msg.lower():
+                        st.warning(f"⚠️ {url}: YouTubeのbot検出によりアクセスが制限されています。少し待ってから再試行してください。")
+                    elif "No video formats found" in error_msg:
+                        st.error(f"⚠️ {url}: 動画フォーマットが見つかりません。非公開または制限付きの動画の可能性があります。")
+                    elif "Private video" in error_msg:
+                        st.error(f"🔒 {url}: 非公開動画のためアクセスできません。")
+                    elif "Video unavailable" in error_msg:
+                        st.error(f"🚫 {url}: 動画が利用できません。削除されたか、地域制限がある可能性があります。")
+                    else:
+                        st.error(f"❌ {url} でエラー: {e}")
                     continue
 
     if st.session_state["files"]:
