@@ -8,7 +8,7 @@ import re
 # アプリケーションのバージョン情報
 APP_VERSION = "v1.0.0"
 APP_NAME = "YouTube Video Downloader"
-LAST_UPDATED = "2025-01-17"
+LAST_UPDATED = "2025-07-17"
 
 # ヘッダー部分
 col1, col2 = st.columns([3, 1])
