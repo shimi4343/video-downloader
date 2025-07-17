@@ -6,7 +6,24 @@ import shutil
 import re
 from typing import Optional, Tuple
 
-st.title("YouTube Video Downloader with Time Clipping")
+# アプリケーションのバージョン情報
+APP_VERSION = "v2.1.0"
+APP_NAME = "YouTube Video Downloader with Time Clipping"
+LAST_UPDATED = "2025-01-17"
+
+# ヘッダー部分
+col1, col2 = st.columns([3, 1])
+with col1:
+    st.title(APP_NAME)
+with col2:
+    st.markdown(f"""
+    <div style="text-align: right; margin-top: 20px;">
+        <span style="background-color: #0066cc; color: white; padding: 4px 8px; border-radius: 4px; font-size: 12px;">
+            {APP_VERSION}
+        </span><br>
+        <small style="color: #666; font-size: 10px;">Updated: {LAST_UPDATED}</small>
+    </div>
+    """, unsafe_allow_html=True)
 
 def parse_time_to_seconds(time_str: str) -> Optional[int]:
     """時間文字列を秒数に変換する
@@ -45,6 +62,26 @@ def validate_time_range(start_time: Optional[int], end_time: Optional[int]) -> T
         if start_time >= end_time:
             return False, "開始時間は終了時間より前である必要があります"
     return True, ""
+
+# アプリケーション情報表示
+with st.expander("📊 アプリ情報と更新履歴"):
+    st.markdown(f"""
+    **バージョン**: {APP_VERSION} | **更新日**: {LAST_UPDATED}
+    
+    **v2.1.0 (2025-01-17)** - 最新版
+    - 🤖 YouTube bot検出回避機能実装
+    - 🔄 自動リトライ機能とエラーハンドリング強化
+    - ✂️ 安定した時間指定機能
+    - 📊 詳細なエラー分類とユーザーフレンドリーなメッセージ
+    
+    **v2.0.0** - 時間指定機能追加
+    - ✂️ 動画の部分切り出し機能
+    - 🎯 個別指定ダウンロード
+    - 📦 一括ダウンロード
+    
+    **v1.0.0** - 初期リリース
+    - 📦 YouTube動画の一括ダウンロード機能
+    """)
 
 # ── モード選択タブ ───────────────────────────────────
 tab1, tab2 = st.tabs(["🎯 個別指定ダウンロード", "📦 一括ダウンロード"])
@@ -107,7 +144,7 @@ with tab1:
         空欄の場合は制限なしとなります。
         """)
         
-        st.info("🤖 **bot検出回避時間指定**: User-Agent偵装、リトライ機能、待機時間設定などでYouTubeのbot検出を回避。")
+        st.info(f"🤖 **bot検出回避時間指定** ({APP_VERSION}): User-Agent偵装、リトライ機能、待機時間設定などでYouTubeのbot検出を回避。")
     
     # 個別指定ダウンロードボタン
     individual_download = st.button("🎯 個別指定ダウンロード", type="primary")
@@ -363,3 +400,16 @@ if "files" in st.session_state:
             mime="video/mp4",
             key=f"dl_{name}",          # キーをユニークにする
         )
+
+# フッター部分
+st.markdown("---")
+col1, col2, col3 = st.columns([1, 2, 1])
+with col2:
+    st.markdown(f"""
+    <div style="text-align: center; color: #666; font-size: 12px; padding: 10px;">
+        <strong>{APP_NAME}</strong> {APP_VERSION}<br>
+        🤖 Advanced YouTube downloader with bot detection bypass<br>
+        ✂️ Time clipping • 📦 Bulk download • 🎯 Individual processing<br>
+        <small>Last updated: {LAST_UPDATED} | Built with Streamlit & yt-dlp</small>
+    </div>
+    """, unsafe_allow_html=True)
